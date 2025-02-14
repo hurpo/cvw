@@ -1,95 +1,46 @@
+.global fir
+
 fir:
-        addi    sp,sp,-80
-        sd      ra,72(sp)
-        sd      s0,64(sp)
-        sd      s1,56(sp)
-        sd      s2,48(sp)
-        addi    s0,sp,80
-        sd      a0,-56(s0)
-        sd      a1,-64(s0)
-        sd      a2,-72(s0)
-        mv      a5,a3
-        sw      a5,-76(s0)
-        mv      a5,a4
-        sw      a5,-80(s0)
-        sw      zero,-36(s0)
-        j       .L2
-.L5:
-        lw      a5,-36(s0)
-        slli    a5,a5,2
-        ld      a4,-72(s0)
-        add     a5,a4,a5
-        sw      zero,0(a5)
-        sw      zero,-36(s0)
-        j       .L3
-.L4:
-        lw      a5,-36(s0)
-        slli    a5,a5,2
-        ld      a4,-72(s0)
-        add     a5,a4,a5
-        lw      s2,0(a5)
-        lw      a5,-40(s0)
-        slli    a5,a5,2
-        ld      a4,-64(s0)
-        add     a5,a4,a5
-        lw      a3,0(a5)
-        lw      a5,-36(s0)
-        mv      a4,a5
-        lw      a5,-40(s0)
-        subw    a5,a4,a5
-        sext.w  a4,a5
-        lw      a5,-80(s0)
-        addiw   a5,a5,-1
-        sext.w  a5,a5
-        addw    a5,a4,a5
-        sext.w  a5,a5
-        slli    a5,a5,2
-        ld      a4,-56(s0)
-        add     a5,a4,a5
-        lw      a5,0(a5)
-        mv      a1,a5
-        mv      a0,a3
-        call    mul_q31
-        mv      a5,a0
-        mv      a3,a5
-        lw      a5,-36(s0)
-        slli    a5,a5,2
-        ld      a4,-72(s0)
-        add     s1,a4,a5
-        mv      a1,a3
-        mv      a0,s2
-        call    add_q31
-        mv      a5,a0
-        sw      a5,0(s1)
-        lw      a5,-36(s0)
-        addiw   a5,a5,1
-        sw      a5,-36(s0)
-.L3:
-        lw      a5,-76(s0)
-        mv      a4,a5
-        lw      a5,-80(s0)
-        subw    a5,a4,a5
-        sext.w  a4,a5
-        lw      a5,-36(s0)
-        sext.w  a5,a5
-        ble     a5,a4,.L4
-        lw      a5,-36(s0)
-        addiw   a5,a5,1
-        sw      a5,-36(s0)
-.L2:
-        lw      a5,-76(s0)
-        mv      a4,a5
-        lw      a5,-80(s0)
-        subw    a5,a4,a5
-        sext.w  a4,a5
-        lw      a5,-36(s0)
-        sext.w  a5,a5
-        ble     a5,a4,.L5
-        nop
-        nop
-        ld      ra,72(sp)
-        ld      s0,64(sp)
-        ld      s1,56(sp)
-        ld      s2,48(sp)
-        addi    sp,sp,80
-        jr      ra
+    # Prologue
+    add t0, a3, zero         # t0 = n
+    sub t0, t0, a4           # t0 = n - m
+    addi t0, t0, 1           # t0 = n - m + 1 (loop limit)
+
+    add t1, a1, a4           # t1 = &c[m] (end of c array)
+    
+forj1:
+    bge s1, t0, donej        # if j >= (n - m + 1), exit loop
+    addi s0, zero, 0         # i = 0
+    add a2, a2, s1           # y[j] pointer update
+    sw zero, 0(a2)           # y[j] = 0 (initialize sum)
+
+fori:
+    bge s0, a4, forj2        # if i >= m, go to next j iteration
+
+    # Load c[i]
+    add t4, a1, s0           # t4 = &c[i]
+    lw t6, 0(t4)             # t6 = c[i]
+
+    # Compute x[j - i + (m - 1)]
+    sub t5, s1, s0           # t5 = j - i
+    add t5, t5, a4           # t5 = j - i + m
+    addi t5, t5, -1          # t5 = j - i + (m - 1)
+    add t5, a0, t5           # t5 = &x[j - i + (m - 1)]
+    lw a5, 0(t5)             # a5 = x[j - i + (m - 1)]
+
+    # Multiply and accumulate: y[j] = add_q31(y[j], mul_q31(c[i], x[j-i+(m-1)]));
+    call mul_q31             # Call mul_q31 (t6 = c[i], a5 = x[j-i+(m-1)])
+    mv t3, a0                # Store result of mul_q31 in t3
+    lw a5, 0(a2)             # Load current y[j]
+    call add_q31             # Call add_q31 (a5 = y[j], t3 = mul result)
+    sw a0, 0(a2)             # Store updated y[j]
+
+    addi s0, s0, 1           # i++
+    j fori                   # Continue i loop
+
+forj2:
+    addi s1, s1, 1           # j++
+    j forj1                  # Restart j loop
+
+donej:
+    ret                      # Return
