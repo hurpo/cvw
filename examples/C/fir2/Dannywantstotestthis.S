@@ -1,95 +1,78 @@
+# fir.S 
+# assembly language of Finite Impulse Response (FIR)
+
+# a0: base address of x
+# a1: base address of c
+# a2: base address of y, later used as pointer to y[j] in j loop
+# a3: n
+# a4: m
+
+# t0: &y[n-m] to check termination of j loop
+# t1: &c[m] to check termination of i loop
+# t2: &x[j+m-1]
+
+# t3: sum
+# t4: pointer to c[i] in i loop
+# t5: pointer to x[j-i+(m-1)] 
+# t6: value of c[i]
+# a5: value of x[j-i+(m-1)]
+
+.global fir
+.extern mul_q31
+.extern add_q31
+
 fir:
-        addi    sp,sp,-80
-        sd      ra,72(sp)
-        sd      s0,64(sp)
-        sd      s1,56(sp)
-        sd      s2,48(sp)
-        addi    s0,sp,80
-        sd      a0,-56(s0)
-        sd      a1,-64(s0)
-        sd      a2,-72(s0)
-        mv      a5,a3
-        sw      a5,-76(s0)
-        mv      a5,a4
-        sw      a5,-80(s0)
-        sw      zero,-36(s0)
-        j       .L2
-.L5:
-        lw      a5,-36(s0)
-        slli    a5,a5,2
-        ld      a4,-72(s0)
-        add     a5,a4,a5
-        sw      zero,0(a5)
-        sw      zero,-36(s0)
-        j       .L3
-.L4:
-        lw      a5,-36(s0)
-        slli    a5,a5,2
-        ld      a4,-72(s0)
-        add     a5,a4,a5
-        lw      s2,0(a5)
-        lw      a5,-40(s0)
-        slli    a5,a5,2
-        ld      a4,-64(s0)
-        add     a5,a4,a5
-        lw      a3,0(a5)
-        lw      a5,-36(s0)
-        mv      a4,a5
-        lw      a5,-40(s0)
-        subw    a5,a4,a5
-        sext.w  a4,a5
-        lw      a5,-80(s0)
-        addiw   a5,a5,-1
-        sext.w  a5,a5
-        addw    a5,a4,a5
-        sext.w  a5,a5
-        slli    a5,a5,2
-        ld      a4,-56(s0)
-        add     a5,a4,a5
-        lw      a5,0(a5)
-        mv      a1,a5
-        mv      a0,a3
-        call    mul_q31
-        mv      a5,a0
-        mv      a3,a5
-        lw      a5,-36(s0)
-        slli    a5,a5,2
-        ld      a4,-72(s0)
-        add     s1,a4,a5
-        mv      a1,a3
-        mv      a0,s2
-        call    add_q31
-        mv      a5,a0
-        sw      a5,0(s1)
-        lw      a5,-36(s0)
-        addiw   a5,a5,1
-        sw      a5,-36(s0)
-.L3:
-        lw      a5,-76(s0)
-        mv      a4,a5
-        lw      a5,-80(s0)
-        subw    a5,a4,a5
-        sext.w  a4,a5
-        lw      a5,-36(s0)
-        sext.w  a5,a5
-        ble     a5,a4,.L4
-        lw      a5,-36(s0)
-        addiw   a5,a5,1
-        sw      a5,-36(s0)
-.L2:
-        lw      a5,-76(s0)
-        mv      a4,a5
-        lw      a5,-80(s0)
-        subw    a5,a4,a5
-        sext.w  a4,a5
-        lw      a5,-36(s0)
-        sext.w  a5,a5
-        ble     a5,a4,.L5
-        nop
-        nop
-        ld      ra,72(sp)
-        ld      s0,64(sp)
-        ld      s1,56(sp)
-        ld      s2,48(sp)
-        addi    sp,sp,80
-        jr      ra
+    # Calculate n - m + 1
+    add t0, a3, zero
+    sub t0, t0, a4
+    addi t0, t0, 1
+    slli t0, t0, 2 # t0 = (n - m + 1) * 4 (byte offset)
+    add t0, t0, a2 # t0 = &y[n-m+1]
+
+    slli t1, a4, 2 # t1 = m * 4 (byte offset)
+    add t1, t1, a1 # t1 = &c[m]
+
+    j forj1
+
+forj1:
+    bge a2, t0, donej # Check if we're at the last index
+    li t3, 0 # sum = 0 
+    sw zero, 0(a2) # y[j] = 0
+
+    add t2, a2, a4 # t2 = j + m
+    addi t2, t2, -1 # t2 = j + m - 1
+    slli t2, t2, 2 # t2 = (j + m -1) * 4 (byte offset)
+    add t2, t2, a0 # t2 = &x[j+m-1]
+
+    mv t4, a1 # Save base address c to t4
+    j fori
+
+fori:
+    bge t4, t1, forj2 # Check if c[i] is at last index
+
+    # Calculate x[j-i+(m-1)]
+    sub t5, t2, t4
+    slli t5, t5, 2
+    add t5, t5, a0
+
+    # Call mul_q31(c[i], x[j-i+(m-1)])
+    lw a0, 0(t4)
+    lw a1, 0(t5)
+    jal mul_q31
+
+    # Call add_q31(y[j], result of mul_q31)
+    lw a1, 0(a2)
+    jal add_q31
+
+    # Store result back to y[j]
+    sw a0, 0(a2)
+
+    addi t4, t4, 4
+    j fori
+
+forj2:
+    addi a2, a2, 4
+    j forj1
+
+donej:
+    ret # all done; return
